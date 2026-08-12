@@ -1,0 +1,2294 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>化學模擬實驗室</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+    
+    <!-- Three.js (3D Engine) & OrbitControls -->
+    <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            user-select: none;
+            overflow: hidden;
+            background-color: #030712;
+            color: #f3f4f6;
+        }
+        .code-font {
+            font-family: 'Fira Code', monospace;
+        }
+
+        /* Glassmorphism UI Panels */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.94);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            box-shadow: 0 20px 30px -10px rgba(0, 0, 0, 0.7);
+        }
+
+        .glass-button {
+            background: rgba(30, 41, 59, 0.95);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .glass-button:hover {
+            background: rgba(51, 65, 85, 0.95);
+            border-color: rgba(56, 189, 248, 0.6);
+            transform: translateY(-1px);
+        }
+
+        .glass-button:active {
+            transform: translateY(1px);
+        }
+
+        ::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.8);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(71, 85, 105, 0.9);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(56, 189, 248, 0.7);
+        }
+
+        .drawer-left {
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .drawer-left.collapsed {
+            transform: translateX(-100%);
+        }
+
+        .drawer-right {
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .drawer-right.collapsed {
+            transform: translateX(100%);
+        }
+
+        #celebration-layer {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            overflow: hidden;
+            z-index: 70;
+        }
+
+        .confetti-piece {
+            position: absolute;
+            top: 18%;
+            left: 50%;
+            width: var(--size, 10px);
+            height: calc(var(--size, 10px) * 1.45);
+            background: var(--color, #facc15);
+            border-radius: 2px;
+            opacity: 0.98;
+            box-shadow: 0 0 12px rgba(255, 255, 255, 0.18);
+            animation: confetti-fall var(--dur, 2200ms) cubic-bezier(0.18, 0.75, 0.2, 1) forwards;
+        }
+
+        .confetti-piece.round {
+            border-radius: 999px;
+        }
+
+        @keyframes confetti-fall {
+            0% {
+                transform: translate3d(0, 0, 0) rotate(0deg) scale(0.85);
+                opacity: 1;
+            }
+            100% {
+                transform: translate3d(var(--dx, 0px), var(--dy, 620px), 0) rotate(var(--rot, 540deg)) scale(1);
+                opacity: 0;
+            }
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col antialiased">
+
+    <!-- Navigation Top Bar -->
+    <header class="h-12 bg-slate-950 border-b border-slate-800 px-3 flex items-center justify-between z-20 shrink-0">
+        <!-- Logo & Title -->
+        <div class="flex items-center">
+            <h1 class="text-xs font-bold tracking-wide text-cyan-300">
+                化學模擬實驗室
+            </h1>
+        </div>
+
+        <!-- Mode Switch Tabs -->
+        <div class="flex items-center gap-1.5 bg-slate-900 p-1 rounded-lg border border-slate-800 text-xs">
+            <button id="mode-sandbox-btn" onclick="switchMode('sandbox')" class="px-3 py-1 rounded-md font-semibold bg-cyan-600 text-white shadow">
+                <i class="fa-solid fa-cubes mr-1"></i> 自由探索
+            </button>
+            <button id="mode-quest-btn" onclick="switchMode('quest')" class="px-3 py-1 rounded-md font-semibold text-slate-400 hover:text-white">
+                <i class="fa-solid fa-trophy mr-1 text-amber-400"></i> 關卡任務 (5題)
+            </button>
+        </div>
+
+        <!-- Action Tools -->
+        <div class="flex items-center gap-1.5">
+            <button onclick="toggleRecipeGuide()" class="glass-button px-2.5 py-1 rounded-lg text-xs font-semibold text-amber-300 flex items-center gap-1">
+                <i class="fa-solid fa-book-open"></i> 經典實驗手冊
+            </button>
+            <button onclick="toggleAudio()" id="sound-btn" class="glass-button w-7 h-7 rounded-lg flex items-center justify-center text-slate-200">
+                <span id="sound-icon" class="w-3.5 h-3.5 inline-flex items-center justify-center" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M11 5 6 9H3v6h3l5 4z"></path>
+                        <path d="M15 9a4 4 0 0 1 0 6"></path>
+                        <path d="M18 6a8 8 0 0 1 0 12"></path>
+                    </svg>
+                </span>
+            </button>
+            <button onclick="resetLabTable()" class="glass-button px-2.5 py-1 rounded-lg text-xs font-semibold text-cyan-400 hover:text-cyan-300 flex items-center gap-1">
+                <i class="fa-solid fa-rotate-left"></i> 清空燒杯
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <div class="flex-1 flex overflow-hidden relative">
+
+        <!-- Left Drawer Toggle Button -->
+        <button onclick="toggleLeftDrawer()" class="absolute top-3 left-3 z-30 w-8 h-8 rounded-lg bg-slate-900 border border-cyan-500/40 text-cyan-400 flex items-center justify-center shadow-lg hover:bg-slate-800">
+            <i class="fa-solid fa-vial" title="展開/收合試劑架"></i>
+        </button>
+
+        <!-- Left Chemical Reagents Panel -->
+        <aside id="left-drawer" class="drawer-left w-72 border-r border-slate-800 glass-panel flex flex-col z-20 shrink-0 absolute inset-y-0 left-0 md:relative">
+            <div class="p-2.5 border-b border-slate-800 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+                <div class="min-w-0 pr-2">
+                    <h2 class="truncate text-xs font-bold text-slate-200">試劑架</h2>
+                </div>
+                <button onclick="toggleLeftDrawer()" class="shrink-0 text-slate-400 hover:text-white text-xs md:hidden">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Category Filters -->
+            <div class="flex items-center gap-1 p-1.5 bg-slate-950 border-b border-slate-800 text-[11px] overflow-x-auto">
+                <button onclick="filterChemicals('all')" class="chem-filter-btn active px-2 py-0.5 rounded bg-cyan-600 text-white whitespace-nowrap">全部</button>
+                <button onclick="filterChemicals('metal')" class="chem-filter-btn px-2 py-0.5 rounded text-slate-400 hover:text-white whitespace-nowrap">固體/金屬</button>
+                <button onclick="filterChemicals('acid')" class="chem-filter-btn px-2 py-0.5 rounded text-slate-400 hover:text-white whitespace-nowrap">酸鹼水溶液</button>
+                <button onclick="filterChemicals('salt')" class="chem-filter-btn px-2 py-0.5 rounded text-slate-400 hover:text-white whitespace-nowrap">鹽類/指示劑</button>
+            </div>
+
+            <!-- Reagent Cards -->
+            <div id="chemical-list" class="flex-1 overflow-y-auto p-2 space-y-1.5">
+                <!-- Populated dynamically -->
+            </div>
+        </aside>
+
+        <!-- Center 3D Scene Viewport -->
+        <main class="flex-1 relative bg-slate-950 flex flex-col items-center justify-center overflow-hidden">
+            
+            <div id="canvas-container" class="w-full h-full absolute inset-0 cursor-grab active:cursor-grabbing"></div>
+
+            <!-- Custom Notification Message Toast -->
+            <div id="app-notification" class="hidden absolute top-4 left-1/2 -translate-x-1/2 glass-panel border border-cyan-500/50 rounded-xl px-4 py-2 z-40 text-xs font-semibold text-cyan-200 shadow-xl flex items-center gap-2 animate-bounce">
+                <i id="notif-icon" class="fa-solid fa-circle-info text-cyan-400"></i>
+                <span id="notif-text">通知訊息</span>
+            </div>
+
+            <!-- Glass Shattered Overlay -->
+            <div id="beaker-shattered-msg" class="hidden absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 glass-panel border-2 border-rose-500 rounded-2xl p-5 text-center space-y-3 z-30 shadow-2xl backdrop-blur-md animate-bounce">
+                <div class="w-14 h-14 bg-rose-500/20 text-rose-400 rounded-full flex items-center justify-center text-3xl mx-auto shadow-lg shadow-rose-500/30">
+                    <i class="fa-solid fa-burst"></i>
+                </div>
+                <h3 class="text-lg font-bold text-rose-400">💥 燒杯劇烈爆裂，火花碎爍！</h3>
+                <p class="text-xs text-slate-300">極度放熱與蒸氣壓力瞬間炸裂玻璃，火花與碎塊飛濺至桌面！</p>
+                <button onclick="resetLabTable()" class="px-5 py-2 bg-gradient-to-r from-rose-600 to-red-500 hover:from-rose-500 hover:to-red-400 text-white font-bold rounded-lg text-xs shadow-lg shadow-rose-600/30 transition-all">
+                    重置並更換全新燒杯
+                </button>
+            </div>
+
+            <!-- Viewport Control Hints -->
+            <div class="absolute bottom-3 left-3 flex items-center gap-2 z-10 flex-wrap">
+                <div class="glass-panel px-2.5 py-1 rounded-lg text-[11px] text-slate-300 border border-slate-800 flex items-center gap-2">
+                    <span><i class="fa-solid fa-hand-pointer text-cyan-400 mr-1"></i> 操作: 拖曳旋轉 / 右鍵平移 / 滾輪縮放</span>
+                </div>
+                <button onclick="setCameraView('default')" class="glass-button px-2 py-1 rounded-lg text-xs font-semibold text-slate-300 hover:text-cyan-300">
+                    <i class="fa-solid fa-camera mr-1"></i>正面
+                </button>
+                <button onclick="setCameraView('closeup')" class="glass-button px-2 py-1 rounded-lg text-xs font-semibold text-slate-300 hover:text-cyan-300">
+                    <i class="fa-solid fa-magnifying-glass mr-1"></i>特寫
+                </button>
+                <button onclick="setCameraView('top')" class="glass-button px-2 py-1 rounded-lg text-xs font-semibold text-slate-300 hover:text-cyan-300">
+                    <i class="fa-solid fa-eye mr-1"></i>俯視
+                </button>
+                <button onclick="resetCameraControls()" class="glass-button px-2 py-1 rounded-lg text-xs font-semibold text-cyan-400 hover:text-cyan-300">
+                    <i class="fa-solid fa-arrows-to-dot mr-1"></i>重置視角
+                </button>
+            </div>
+
+            <!-- Heating Controls -->
+            <div class="absolute bottom-3 right-3 flex items-center gap-2 z-10">
+                <button id="burner-toggle-btn" onclick="toggleAlcoholLampFlame()" class="glass-button px-3 py-1.5 rounded-lg text-xs font-bold text-amber-400 flex items-center gap-1.5 border border-amber-500/30">
+                    <i class="fa-solid fa-fire text-amber-500" id="burner-icon"></i>
+                    <span id="burner-text">點燃酒精燈加熱</span>
+                </button>
+            </div>
+        </main>
+
+        <!-- Right Drawer Toggle Button -->
+        <button onclick="toggleRightDrawer()" class="absolute top-3 right-3 z-30 w-8 h-8 rounded-lg bg-slate-900 border border-cyan-500/40 text-cyan-400 flex items-center justify-center shadow-lg hover:bg-slate-800">
+            <i class="fa-solid fa-list-check" title="展開/收合右側面板"></i>
+        </button>
+
+        <!-- Right Drawer: Dashboard & Quest -->
+        <aside id="right-drawer" class="drawer-right w-72 border-l border-slate-800 glass-panel flex flex-col z-20 shrink-0 absolute inset-y-0 right-0 md:relative">
+            <!-- Sandbox Dashboard -->
+            <div id="sandbox-dashboard" class="flex-1 flex flex-col overflow-y-auto">
+                <div class="p-2.5 border-b border-slate-800 flex items-center gap-2">
+                    <i class="fa-solid fa-flask-vial text-cyan-400"></i>
+                    <h2 class="text-xs font-bold text-slate-200">燒杯實時狀態監視</h2>
+                </div>
+
+                <!-- Instrument Gauges -->
+                <div class="p-3 border-b border-slate-800/80 space-y-2.5 bg-slate-950/40">
+                    <div class="text-[11px] font-bold text-slate-300 uppercase tracking-wider flex items-center justify-between border-b border-slate-800 pb-1">
+                        <span><i class="fa-solid fa-gauge-high mr-1 text-cyan-400"></i> 物理量測量</span>
+                        <span id="liquid-volume-tag" class="text-cyan-300 code-font font-bold">0 mL</span>
+                    </div>
+                    
+                    <!-- Temperature Gauge -->
+                    <div class="space-y-0.5">
+                        <div class="flex justify-between text-[11px]">
+                            <span class="text-slate-400">溫度 (Temperature)</span>
+                            <span id="temp-display" class="font-bold code-font text-amber-400">25.0 °C</span>
+                        </div>
+                        <div class="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden border border-slate-800">
+                            <div id="temp-bar" class="bg-gradient-to-r from-blue-500 via-amber-400 to-rose-500 h-full w-[25%] transition-all"></div>
+                        </div>
+                    </div>
+
+                    <!-- pH Meter -->
+                    <div class="space-y-0.5">
+                        <div class="flex justify-between text-[11px]">
+                            <span class="text-slate-400">酸鹼值 (pH)</span>
+                            <span id="ph-display" class="font-bold code-font text-emerald-400">7.0 (中性)</span>
+                        </div>
+                        <div class="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden border border-slate-800 relative">
+                            <div id="ph-indicator-pin" class="absolute top-0 bottom-0 w-1.5 bg-white shadow rounded-full transition-all left-[50%] -translate-x-1/2"></div>
+                            <div class="w-full h-full bg-gradient-to-r from-red-500 via-yellow-400 via-green-500 via-cyan-400 to-purple-600"></div>
+                        </div>
+                    </div>
+
+                    <!-- Liquid State -->
+                    <div class="flex items-center justify-between text-[11px] pt-1 border-t border-slate-800/60">
+                        <span class="text-slate-400">溶液外觀顯色:</span>
+                        <div class="flex items-center gap-1.5">
+                            <div id="liquid-color-dot" class="w-3.5 h-3.5 rounded-full border border-white/50 bg-slate-400/20 shadow-inner"></div>
+                            <span id="liquid-color-name" class="text-slate-200 text-[11px] font-semibold">無色透明</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Active Reagents Tag Cloud -->
+                <div class="p-3 flex-1 overflow-y-auto space-y-2">
+                    <div class="text-[11px] font-bold text-slate-300 flex justify-between">
+                        <span>燒杯內部成分:</span>
+                        <span id="chem-count-tag" class="text-cyan-400 font-normal">0 種</span>
+                    </div>
+                    <div id="active-chemicals-chips" class="flex flex-wrap gap-1.5 p-2 bg-slate-900/90 rounded-lg border border-slate-800 min-h-[45px]">
+                        <span class="text-[10px] text-slate-500 italic">尚無成分</span>
+                    </div>
+
+                    <!-- Active Chemical Reactions Panel -->
+                    <div class="pt-2 border-t border-slate-800 space-y-1.5">
+                        <div class="text-[11px] font-bold text-slate-300 flex justify-between">
+                            <span class="flex items-center gap-1"><i class="fa-solid fa-atom text-amber-400"></i> 當前進行化學反應:</span>
+                            <span id="reaction-count-tag" class="text-amber-400 font-normal">0 個</span>
+                        </div>
+                        <div id="active-reactions-container" class="space-y-1.5 p-2 bg-slate-900/90 rounded-lg border border-slate-800 min-h-[50px]">
+                            <span class="text-[10px] text-slate-500 italic">無化學反應進行中</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quest Dashboard -->
+            <div id="quest-dashboard" class="hidden flex-1 flex flex-col p-3 space-y-3 overflow-y-auto">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <div class="flex flex-col">
+                        <span id="quest-progress-tag" class="text-xs font-bold text-amber-400 code-font">關卡 1/5</span>
+                        <span id="quest-clear-tag" class="text-[10px] text-emerald-300/90">已完成 0/5</span>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <button onclick="navigateQuest(-1)" class="glass-button w-6 h-6 rounded flex items-center justify-center text-xs"><i class="fa-solid fa-chevron-left"></i></button>
+                        <button onclick="navigateQuest(1)" class="glass-button w-6 h-6 rounded flex items-center justify-center text-xs"><i class="fa-solid fa-chevron-right"></i></button>
+                    </div>
+                </div>
+                <div class="space-y-1">
+                    <h3 id="quest-title" class="text-xs font-bold text-cyan-300"></h3>
+                    <p id="quest-desc" class="text-[11px] text-slate-300 leading-relaxed"></p>
+                </div>
+                <div class="space-y-1.5 pt-2 border-t border-slate-800">
+                    <div class="text-[11px] font-bold text-slate-400">實驗步驟:</div>
+                    <div id="quest-checklist" class="space-y-1.5"></div>
+                </div>
+                <button id="check-quest-btn" onclick="verifyCurrentQuest()" class="w-full py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold rounded-lg text-xs shadow-lg transition-all">
+                    <i class="fa-solid fa-check-circle mr-1"></i> 完成步驟後驗證
+                </button>
+            </div>
+        </aside>
+    </div>
+
+    <div id="celebration-layer" aria-hidden="true"></div>
+
+    <!-- Recipe Modal Guide -->
+    <div id="recipe-modal" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div class="glass-panel w-full max-w-lg rounded-2xl p-4 space-y-3 relative border border-cyan-500/30">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                <h3 class="text-sm font-bold text-cyan-300 flex items-center gap-2">
+                    <i class="fa-solid fa-book-open text-amber-400"></i> 經典實驗手冊 (精確物理顯色)
+                </h3>
+                <button onclick="toggleRecipeGuide()" class="text-slate-400 hover:text-white text-xs">
+                    <i class="fa-solid fa-xmark text-base"></i>
+                </button>
+            </div>
+            <div id="recipe-list-container" class="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+                <!-- Populated dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* ====================================================================
+           1. ACCURATE CHEMICAL DATABASE & REACTION MATRIX
+           ==================================================================== */
+
+        // Standardized Chemical Color Palette & Physical Density States
+        const CHEMICAL_DATABASE = [
+            { id: 'Na', name: '金屬鈉', formula: 'Na(s)', category: 'metal', state: 'solid', density: 0.97, color: '#e2e8f0', rgb: [226, 232, 240], particleType: 'na', ph: 7.0, amountUnit: 'g', defaultAmt: 5, desc: '銀白色軟質金屬塊 (密度0.97g/cm³ 浮於水面並劇烈滾動反應)' },
+            { id: 'Zn', name: '鋅粒', formula: 'Zn(s)', category: 'metal', state: 'solid', density: 7.14, color: '#71717a', rgb: [113, 113, 122], particleType: 'zn', ph: 7.0, amountUnit: 'g', defaultAmt: 10, desc: '金屬灰多面體顆粒 (密度大沈入底層，遇酸釋放氫氣氣泡)' },
+            { id: 'Fe', name: '鐵粉', formula: 'Fe(s)', category: 'metal', state: 'solid', density: 7.87, color: '#27272a', rgb: [39, 39, 42], particleType: 'fe', ph: 7.0, amountUnit: 'g', defaultAmt: 10, desc: '深灰黑色微細鐵粉末，沈積於燒杯底部' },
+            { id: 'CaCO3', name: '碳酸鈣塊', formula: 'CaCO3(s)', category: 'salt', state: 'solid', density: 2.71, color: '#ffffff', rgb: [255, 255, 255], particleType: 'caco3', ph: 8.0, amountUnit: 'g', defaultAmt: 15, desc: '純白大理石塊 (沉於底層，遇酸劇烈釋放二氧化碳)' },
+            { id: 'HCl', name: '稀鹽酸', formula: 'HCl(aq)', category: 'acid', state: 'aqueous', density: 1.05, color: '#e0f2fe', rgb: [224, 242, 254], particleType: 'liquid', ph: 1.0, amountUnit: 'mL', defaultAmt: 50, desc: '無色透明強酸水溶液 (折射率 1.33)' },
+            { id: 'NaOH', name: '氫氧化鈉溶液', formula: 'NaOH(aq)', category: 'acid', state: 'aqueous', density: 1.08, color: '#e0f2fe', rgb: [224, 242, 254], particleType: 'liquid', ph: 13.5, amountUnit: 'mL', defaultAmt: 50, desc: '無色透明強鹼水溶液' },
+            { id: 'H2O', name: '純水', formula: 'H2O(l)', category: 'salt', state: 'liquid', density: 1.00, color: '#f8fafc', rgb: [248, 250, 252], particleType: 'liquid', ph: 7.0, amountUnit: 'mL', defaultAmt: 100, desc: '清澈無色透明基礎水溶劑' },
+            { id: 'Phenol', name: '酚酞指示劑', formula: 'Phenol', category: 'salt', state: 'aqueous', density: 1.00, color: '#e0f2fe', rgb: [224, 242, 254], particleType: 'liquid', ph: 7.0, amountUnit: 'mL', defaultAmt: 10, desc: '酸/中性為無色透明；鹼性 (pH>8.3) 呈亮粉紅顯色' },
+            { id: 'Universal', name: '廣用指示劑', formula: 'Universal', category: 'salt', state: 'aqueous', density: 1.00, color: '#22c55e', rgb: [34, 197, 94], particleType: 'liquid', ph: 7.0, amountUnit: 'mL', defaultAmt: 10, desc: '中性呈現璀璨翠綠色，隨 pH 變換彩虹光譜' },
+            { id: 'CuSO4', name: '硫酸銅溶液', formula: 'CuSO4(aq)', category: 'salt', state: 'aqueous', density: 1.10, color: '#0284c7', rgb: [2, 132, 199], particleType: 'liquid', ph: 5.5, amountUnit: 'mL', defaultAmt: 50, desc: '晶瑩澄清的經典寶藍色 Cu²⁺ 溶液' },
+            { id: 'AgNO3', name: '硝酸銀溶液', formula: 'AgNO3(aq)', category: 'salt', state: 'aqueous', density: 1.12, color: '#e0f2fe', rgb: [224, 242, 254], particleType: 'liquid', ph: 6.0, amountUnit: 'mL', defaultAmt: 50, desc: '無色透明 Ag⁺ 水溶液' },
+            { id: 'KI', name: '碘化鉀溶液', formula: 'KI(aq)', category: 'salt', state: 'aqueous', density: 1.08, color: '#fef08a', rgb: [254, 240, 138], particleType: 'liquid', ph: 7.0, amountUnit: 'mL', defaultAmt: 20, desc: '極微淡黃色水溶液，雙氧水之分解催化劑' },
+            { id: 'H2O2', name: '濃過氧化氫', formula: 'H2O2(aq)', category: 'salt', state: 'aqueous', density: 1.11, color: '#e0f2fe', rgb: [224, 242, 254], particleType: 'liquid', ph: 6.0, amountUnit: 'mL', defaultAmt: 50, desc: '無色雙氧水，受催化瞬間釋放氧氣' },
+        ];
+
+        const REACTION_RULES = [
+            {
+                id: 'neutralization',
+                name: "強酸強鹼酸鹼中和",
+                equation: "HCl + NaOH → NaCl + H₂O",
+                reactants: ['HCl', 'NaOH'],
+                phenomena: "放熱反應，產物 NaCl 水溶液呈現清澈無色透明",
+                tempRise: 14.0,
+                targetPh: 7.0,
+                colorHex: "#ffffff",
+                colorName: "無色透明中性鹽水",
+                sound: 'pour'
+            },
+            {
+                id: 'phenol_pink',
+                name: "酚酞遇鹼顯色反應",
+                equation: "Phenol + OH⁻ (pH ≥ 8.3) → 亮粉紅顯色",
+                reactants: ['NaOH', 'Phenol'],
+                phenomena: "酚酞於鹼性環境構造轉變，呈現鮮豔亮粉紅色",
+                colorHex: "#e11d48",
+                colorName: "鮮豔亮粉紅色 (鹼性)"
+            },
+            {
+                id: 'cu_precipitate',
+                name: "氫氧化銅絮狀沉澱",
+                equation: "CuSO₄ + 2NaOH → Cu(OH)₂↓ + Na₂SO₄",
+                reactants: ['CuSO4', 'NaOH'],
+                phenomena: "生成淺藍色 Cu(OH)₂ 膠狀懸浮沉澱物，徐徐沈降至底部",
+                precipitateColor: 0x38bdf8,
+                colorHex: "#38bdf8",
+                colorName: "天藍色懸濁液 (含膠狀沉澱)",
+                precipitateType: 'cu'
+            },
+            {
+                id: 'ag_precipitate',
+                name: "氯化銀白色凝乳沉澱",
+                equation: "AgNO₃ + HCl → AgCl↓ + HNO₃",
+                reactants: ['AgNO3', 'HCl'],
+                phenomena: "瞬間反應產生牛奶般白色的 AgCl 微晶沉澱",
+                precipitateColor: 0xffffff,
+                colorHex: "#f8fafc",
+                colorName: "乳白色凝乳沉澱",
+                precipitateType: 'ag'
+            },
+            {
+                id: 'caco3_acid',
+                name: "碳酸鈣塊遇酸釋放二氧化碳",
+                equation: "CaCO₃ + 2HCl → CaCl₂ + H₂O + CO₂↑",
+                reactants: ['CaCO3', 'HCl'],
+                phenomena: "碳酸鈣塊表面劇烈產生細密 CO₂ 氣泡並上升！",
+                bubbles: true,
+                sound: 'bubble'
+            },
+            {
+                id: 'zn_acid',
+                name: "金屬鋅置換氫氣反應",
+                equation: "Zn + 2HCl → ZnCl₂ + H₂↑",
+                reactants: ['Zn', 'HCl'],
+                phenomena: "鋅顆粒表面持續冒出 H₂ 氣泡升至液面",
+                bubbles: true,
+                sound: 'bubble'
+            },
+            {
+                id: 'elephant_toothpaste',
+                name: "大象牙膏 (雙氧水催化分解)",
+                equation: "2H₂O₂ (KI 催化) → 2H₂O + O₂↑ (龐大泡沫柱)",
+                reactants: ['H2O2', 'KI'],
+                phenomena: "碘離子催化雙氧水快速分解，產生大量 O₂ 並形成龐大泡沫柱！",
+                bubbles: true,
+                isFoamColumn: true,
+                tempRise: 28.0,
+                colorHex: "#facc15",
+                colorName: "金黃泡沫柱",
+                sound: 'bubble'
+            },
+            {
+                id: 'na_water_reaction',
+                name: "金屬鈉水解爆炸反應",
+                equation: "2Na + 2H₂O → 2NaOH + H₂↑ (引發劇烈爆炸與火花)",
+                reactants: ['Na', 'H2O'],
+                phenomena: "鈉金屬遇水瞬間釋放大量氫氣與熱能，爆發火花並炸裂燒杯！",
+                tempRise: 60.0,
+                targetPh: 13.5,
+                bubbles: true,
+                colorHex: "#ffffff",
+                colorName: "強鹼性溶液",
+                sound: 'boom',
+                immediateExplosion: true
+            }
+        ];
+
+        /* Experiment Presets Guide */
+        const EXPERIMENT_RECIPES = [
+            {
+                title: "酸鹼中和與酚酞變色",
+                desc: "加入稀鹽酸與氫氧化鈉，觀察 pH 趨向 7.0 與酚酞粉紅色的消褪過程",
+                reagents: ['H2O', 'NaOH', 'Phenol', 'HCl']
+            },
+            {
+                title: "天藍色氫氧化銅膠狀沉澱",
+                desc: "硫酸銅寶藍色溶液遇強鹼，生成天藍色 Cu(OH)₂ 絮狀沉澱與微晶懸濁液",
+                reagents: ['H2O', 'CuSO4', 'NaOH']
+            },
+            {
+                title: "大象牙膏雙氧水催化分解泡沫柱",
+                desc: "濃過氧化氫 + 碘化鉀催化劑，讓雙氧水分解直接噴出泡沫柱",
+                reagents: ['H2O2', 'KI']
+            },
+            {
+                title: "廣用指示劑彩虹酸鹼變色",
+                desc: "加入廣用指示劑，連續滴入強酸強鹼體驗彩虹顯色譜",
+                reagents: ['H2O', 'Universal', 'HCl', 'NaOH']
+            },
+            {
+                title: "金屬鈉水面熔滾與火花爆裂",
+                desc: "金屬鈉浮於水面劇烈反應，配合加熱體驗火花四濺與燒杯碎裂瞬間！",
+                reagents: ['H2O', 'Na', 'Phenol']
+            }
+        ];
+
+        /* Quest List Matrix */
+        const QUEST_LIST = [
+            {
+                id: 1,
+                title: "關卡 1: 依步驟調成中性溫熱液",
+                desc: "先加入稀鹽酸，再慢慢加入氫氧化鈉並攪拌，讓溶液回到中性附近，同時觀察反應升溫。",
+                verify: (state) => state.ph >= 6.5 && state.ph <= 7.5 && state.temp >= 30.0,
+                checklist: ["先加入酸液，再以鹼液微調", "溶液 pH 值調配至 6.5 ~ 7.5", "反應放熱或加熱使溫度 ≥ 30°C"]
+            },
+            {
+                id: 2,
+                title: "關卡 2: 依序做出天藍沉澱",
+                desc: "先加入硫酸銅溶液，再加入氫氧化鈉，讓天藍色 Cu(OH)₂ 沉澱形成，且液量不少於 100 mL。",
+                verify: (state) => state.hasPrecipitate && state.precipitateType === 'cu' && state.volume >= 100,
+                checklist: ["先倒入硫酸銅溶液", "再加入氫氧化鈉讓天藍沉澱生成", "燒杯總液體量 ≥ 100 mL"]
+            },
+            {
+                id: 3,
+                title: "關卡 3: 讓廣用指示劑停在翠綠",
+                desc: "加入廣用指示劑後，把燒杯中的酸鹼度微調到 pH 7.0 附近，讓顏色停在翠綠色。",
+                verify: (state) => state.reagentsInBeaker['Universal'] > 0 && Math.abs(state.ph - 7.0) < 0.5,
+                checklist: ["先加入廣用指示劑", "把 pH 微調到 7.0 附近", "讓顏色維持翠綠色"]
+            },
+            {
+                id: 4,
+                title: "關卡 4: 催化雙氧水噴出泡沫柱",
+                desc: "把 H₂O₂ 和 KI 一起加入燒杯，觀察雙氧水分解成金黃泡沫柱。",
+                verify: (state) => state.activeReactions.includes('elephant_toothpaste'),
+                checklist: ["同時加入 H₂O₂ 與 KI", "觀察泡沫柱從燒杯中噴出", "讓泡沫維持向上膨脹"]
+            },
+            {
+                id: 5,
+                title: "關卡 5: 點燃酒精燈引發高溫爆沸",
+                desc: "點燃酒精燈持續加熱，讓燒杯升溫到 85°C 以上或直接觸發劇烈碎裂。",
+                verify: (state) => state.temp >= 85.0 || state.isShattered,
+                checklist: ["點燃酒精燈進行高溫加熱", "溫度達到 85.0°C 以上或引發暴沸碎裂"]
+            }
+        ];
+
+        /* Laboratory Global State */
+        let labState = {
+            mode: 'sandbox',
+            reagentsInBeaker: {},
+            volume: 0,
+            temp: 25.0,
+            ph: 7.0,
+            liquidColorHex: '#ffffff',
+            liquidColorName: '空燒杯 (無液體)',
+            liquidOpacity: 0.0,
+            activeReactions: [],
+            isBubbling: false,
+            hasPrecipitate: false,
+            precipitateType: null,
+            isBurnerLit: false,
+            isShattered: false,
+            soundEnabled: true,
+            currentQuestIndex: 0,
+            questCleared: Array(QUEST_LIST.length).fill(false),
+            questClearCount: 0,
+            questCelebrated: false
+        };
+
+        /* Three.js Engine Variables */
+        let scene, camera, renderer, controls;
+        let beakerGroup, liquidMesh, liquidMaterial, liquidTopMeniscusMesh, beakerGlassDepthMask;
+        let flameGroup, flameMesh, flameLight;
+        let bubblesParticles, precipitateParticles, steamParticles;
+        let foamColumnMesh;
+        let foamPivotGroup;
+        let foamSpillGroup;
+        let foamSpillMesh;
+        let foamSpillCapMesh;
+        let foamSpillCurve = null;
+        let foamSpillLastProgress = -1;
+        let bubblePositions = [], bubbleSpeeds = [];
+        let precipitatePositions = [], precipitateSpeeds = [], precipitateSettled = [];
+        let precipitateNeedsReset = true;
+
+        /* Advanced Dynamic Explosion Physics System */
+        let activeSparks = [];          // Fiery glowing spark particles
+        let activeShards = [];          // Glass geometric broken fragments
+        let activeSplatters = [];       // Flying liquid splatters
+        let explosionLight = null;      // Flash of brightness
+        let cameraShakeTime = 0;        // Camera shake countdown timer
+        let cameraShakeBasePos = null;  // Camera position captured when shake starts
+        let originalCameraPos = null;
+
+        /* Sky Falling Solid Granules & Liquid Stream System */
+        let activeDroppingObjects = [];
+        let settledSolidGroup;
+        let persistentSolids = []; // 積存燒杯內的固體
+
+        /* Sound Web Audio Synth */
+        let audioCtx = null;
+
+        window.onload = function() {
+            initAudio();
+            init3DScene();
+            renderChemicalList();
+            renderRecipeGuide();
+            updateDashboardUI();
+            
+            // Start 3D Render Loop
+            animate();
+        };
+
+        function initAudio() {
+            try {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (AudioContext) {
+                    audioCtx = new AudioContext();
+                }
+            } catch (e) {
+                console.log('Audio Context unavailable');
+            }
+        }
+
+        function playSoundEffect(type) {
+            if (!labState.soundEnabled || !audioCtx) return;
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+
+            try {
+                const now = audioCtx.currentTime;
+
+                if (type === 'pour') {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(400, now);
+                    osc.frequency.exponentialRampToValueAtTime(200, now + 0.22);
+                    gain.gain.setValueAtTime(0.12, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.22);
+                    osc.start(now);
+                    osc.stop(now + 0.22);
+                } else if (type === 'clink') {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(900 + Math.random() * 300, now);
+                    osc.frequency.exponentialRampToValueAtTime(300, now + 0.1);
+                    gain.gain.setValueAtTime(0.2, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.1);
+                    osc.start(now);
+                    osc.stop(now + 0.1);
+                } else if (type === 'bubble') {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(300 + Math.random() * 200, now);
+                    osc.frequency.linearRampToValueAtTime(600 + Math.random() * 200, now + 0.08);
+                    gain.gain.setValueAtTime(0.08, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.08);
+                    osc.start(now);
+                    osc.stop(now + 0.08);
+                } else if (type === 'boom') {
+                    // Deep Bass Rumble Oscillator
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(220, now);
+                    osc.frequency.exponentialRampToValueAtTime(25, now + 0.5);
+                    gain.gain.setValueAtTime(0.6, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.5);
+                    osc.start(now);
+                    osc.stop(now + 0.5);
+
+                    // High-Frequency Sparkle Noise
+                    const osc2 = audioCtx.createOscillator();
+                    const gain2 = audioCtx.createGain();
+                    osc2.connect(gain2);
+                    gain2.connect(audioCtx.destination);
+                    osc2.type = 'square';
+                    osc2.frequency.setValueAtTime(1200, now);
+                    osc2.frequency.exponentialRampToValueAtTime(100, now + 0.3);
+                    gain2.gain.setValueAtTime(0.3, now);
+                    gain2.gain.linearRampToValueAtTime(0.01, now + 0.3);
+                    osc2.start(now);
+                    osc2.stop(now + 0.3);
+                } else if (type === 'clap') {
+                    for (let i = 0; i < 4; i++) {
+                        const t = now + i * 0.08;
+                        const osc = audioCtx.createOscillator();
+                        const gain = audioCtx.createGain();
+                        osc.connect(gain);
+                        gain.connect(audioCtx.destination);
+                        osc.type = 'triangle';
+                        osc.frequency.setValueAtTime(980 + Math.random() * 260, t);
+                        osc.frequency.exponentialRampToValueAtTime(180 + Math.random() * 60, t + 0.06);
+                        gain.gain.setValueAtTime(0.16, t);
+                        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+                        osc.start(t);
+                        osc.stop(t + 0.08);
+                    }
+                }
+            } catch (err) {
+                // Audio synthesis fallback
+            }
+        }
+
+        function toggleLeftDrawer() {
+            document.getElementById('left-drawer').classList.toggle('collapsed');
+        }
+
+        function toggleRightDrawer() {
+            document.getElementById('right-drawer').classList.toggle('collapsed');
+        }
+
+        function toggleAudio() {
+            labState.soundEnabled = !labState.soundEnabled;
+            const icon = document.getElementById('sound-icon');
+            if (labState.soundEnabled) {
+                icon.innerHTML = `
+                    <svg viewBox="0 0 24 24" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M11 5 6 9H3v6h3l5 4z"></path>
+                        <path d="M15 9a4 4 0 0 1 0 6"></path>
+                        <path d="M18 6a8 8 0 0 1 0 12"></path>
+                    </svg>
+                `;
+                showNotification('已開啟音效模式', 'fa-volume-high');
+            } else {
+                icon.innerHTML = `
+                    <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M11 5 6 9H3v6h3l5 4z"></path>
+                        <path d="m16 9 5 6"></path>
+                        <path d="m21 9-5 6"></path>
+                    </svg>
+                `;
+                showNotification('已靜音', 'fa-volume-xmark');
+            }
+        }
+
+        function showNotification(msg, iconClass = 'fa-circle-info') {
+            const notif = document.getElementById('app-notification');
+            const icon = document.getElementById('notif-icon');
+            const text = document.getElementById('notif-text');
+            
+            icon.className = `fa-solid ${iconClass} text-cyan-400`;
+            text.innerText = msg;
+            notif.classList.remove('hidden');
+            
+            clearTimeout(window.notifTimer);
+            window.notifTimer = setTimeout(() => {
+                notif.classList.add('hidden');
+            }, 3000);
+        }
+
+        function switchMode(mode) {
+            labState.mode = mode;
+            const sandboxBtn = document.getElementById('mode-sandbox-btn');
+            const questBtn = document.getElementById('mode-quest-btn');
+            const sandboxDash = document.getElementById('sandbox-dashboard');
+            const questDash = document.getElementById('quest-dashboard');
+
+            if (mode === 'sandbox') {
+                sandboxBtn.className = "px-3 py-1 rounded-md font-semibold bg-cyan-600 text-white shadow";
+                questBtn.className = "px-3 py-1 rounded-md font-semibold text-slate-400 hover:text-white";
+                sandboxDash.classList.remove('hidden');
+                questDash.classList.add('hidden');
+            } else {
+                questBtn.className = "px-3 py-1 rounded-md font-semibold bg-amber-500 text-slate-950 shadow font-bold";
+                sandboxBtn.className = "px-3 py-1 rounded-md font-semibold text-slate-400 hover:text-white";
+                questDash.classList.remove('hidden');
+                sandboxDash.classList.add('hidden');
+                loadQuest(labState.currentQuestIndex);
+            }
+        }
+
+        function filterChemicals(category) {
+            document.querySelectorAll('.chem-filter-btn').forEach(btn => {
+                btn.className = "chem-filter-btn px-2 py-0.5 rounded text-slate-400 hover:text-white whitespace-nowrap";
+            });
+            event.target.className = "chem-filter-btn active px-2 py-0.5 rounded bg-cyan-600 text-white whitespace-nowrap";
+            renderChemicalList(category);
+        }
+
+        function renderChemicalList(filterCat = 'all') {
+            const container = document.getElementById('chemical-list');
+            container.innerHTML = '';
+
+            const filtered = CHEMICAL_DATABASE.filter(item => {
+                if (filterCat === 'all') return true;
+                return item.category === filterCat;
+            });
+
+            filtered.forEach(chem => {
+                const card = document.createElement('div');
+                card.className = "glass-button p-2 rounded-xl flex flex-col gap-1 cursor-pointer group hover:border-cyan-400/60";
+                card.onclick = () => addChemicalToBeaker(chem.id);
+
+                const isSolid = chem.state === 'solid';
+                const badgeColor = isSolid ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30';
+
+                card.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="w-3.5 h-3.5 rounded-full border border-white/40 shadow-inner" style="background-color: ${chem.color}"></span>
+                            <span class="text-xs font-bold text-slate-100 group-hover:text-cyan-300 transition-colors">${chem.name}</span>
+                        </div>
+                        <span class="text-[10px] code-font px-1.5 py-0.5 rounded border ${badgeColor}">${chem.formula}</span>
+                    </div>
+                    <p class="text-[10px] text-slate-400 leading-tight">${chem.desc}</p>
+                    <div class="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-800/60">
+                        <span>單次加入量: ${chem.defaultAmt} ${chem.amountUnit}</span>
+                        <span class="text-cyan-400 font-semibold group-hover:translate-x-0.5 transition-transform">傾倒 <i class="fa-solid fa-arrow-down-long"></i></span>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function renderRecipeGuide() {
+            const container = document.getElementById('recipe-list-container');
+            container.innerHTML = '';
+
+            EXPERIMENT_RECIPES.forEach((rec, idx) => {
+                const item = document.createElement('div');
+                item.className = "p-3 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1.5 hover:border-cyan-500/40 transition-colors";
+                
+                const reagentChips = rec.reagents.map(id => {
+                    const found = CHEMICAL_DATABASE.find(c => c.id === id);
+                    return `<span class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-cyan-300 border border-slate-700">${found ? found.name : id}</span>`;
+                }).join(' ');
+
+                item.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <h4 class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                            <span class="w-4 h-4 rounded-full bg-cyan-600/30 text-cyan-300 text-[10px] flex items-center justify-center font-bold">${idx + 1}</span>
+                            ${rec.title}
+                        </h4>
+                        <button onclick="applyRecipePreset(${idx})" class="text-[11px] px-2 py-0.5 rounded bg-cyan-600 hover:bg-cyan-500 text-white font-bold transition-all shadow">
+                            一鍵載入試劑
+                        </button>
+                    </div>
+                    <p class="text-[11px] text-slate-400">${rec.desc}</p>
+                    <div class="flex flex-wrap gap-1 pt-1">${reagentChips}</div>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        function toggleRecipeGuide() {
+            document.getElementById('recipe-modal').classList.toggle('hidden');
+        }
+
+        function applyRecipePreset(idx) {
+            resetLabTable();
+            toggleRecipeGuide();
+            const rec = EXPERIMENT_RECIPES[idx];
+            showNotification(`已一鍵載入實驗配方: ${rec.title}`, 'fa-wand-magic-sparkles');
+            
+            rec.reagents.forEach((chemId, delayIdx) => {
+                setTimeout(() => {
+                    if (!labState.isShattered) {
+                        addChemicalToBeaker(chemId);
+                    }
+                }, delayIdx * 450);
+            });
+        }
+
+        function addChemicalToBeaker(chemId) {
+            if (labState.isShattered) {
+                showNotification('燒杯已破裂！請點擊上方「清空燒杯」更換新燒杯', 'fa-triangle-exclamation');
+                return;
+            }
+
+            const chem = CHEMICAL_DATABASE.find(c => c.id === chemId);
+            if (!chem) return;
+
+            // Increment beaker reagent state
+            labState.reagentsInBeaker[chemId] = (labState.reagentsInBeaker[chemId] || 0) + chem.defaultAmt;
+
+            // Trigger sky dropping visual animation
+            spawnDroppingObject(chem);
+
+            // Audio sound effect
+            if (chem.state === 'solid') {
+                playSoundEffect('clink');
+            } else {
+                playSoundEffect('pour');
+            }
+
+            // Recalculate Beaker Reactions & Physics
+            evaluateChemicalReactions();
+            updateDashboardUI();
+        }
+
+        function evaluateChemicalReactions() {
+            const keys = Object.keys(labState.reagentsInBeaker);
+            
+            // Calculate total volume
+            let totalVol = 0;
+            keys.forEach(k => {
+                const dbChem = CHEMICAL_DATABASE.find(c => c.id === k);
+                if (dbChem && dbChem.state !== 'solid') {
+                    totalVol += labState.reagentsInBeaker[k];
+                }
+            });
+            labState.volume = totalVol;
+
+            // Reset Reaction States
+            labState.activeReactions = [];
+            labState.isBubbling = false;
+            labState.hasPrecipitate = false;
+            labState.precipitateType = null;
+
+            // Check Sodium + Water Immediate Explosion
+            if ((labState.reagentsInBeaker['Na'] || 0) > 0 && (labState.reagentsInBeaker['H2O'] || 0) > 0) {
+                if (!labState.isShattered) {
+                    setTimeout(() => {
+                        showNotification('💥 金屬鈉遇水劇烈反應引發猛烈爆炸！火花四濺與燒杯碎裂！', 'fa-burst');
+                        triggerExplosionDemo();
+                    }, 150);
+                }
+            }
+
+            // Test each Reaction Rule
+            REACTION_RULES.forEach(rule => {
+                const hasAllReactants = rule.reactants.every(r => (labState.reagentsInBeaker[r] || 0) > 0);
+                
+                if (hasAllReactants) {
+                    labState.activeReactions.push(rule.id);
+                    
+                    if (rule.tempRise) {
+                        labState.temp += rule.tempRise;
+                    }
+                    if (rule.bubbles) {
+                        labState.isBubbling = true;
+                    }
+                    if (rule.precipitateType) {
+                        labState.hasPrecipitate = true;
+                        labState.precipitateType = rule.precipitateType;
+                        precipitateNeedsReset = true;
+                    }
+                    if (rule.sound) {
+                        playSoundEffect(rule.sound);
+                    }
+                }
+            });
+
+            // Recalculate pH Level
+            let basePh = 7.0;
+            if (labState.reagentsInBeaker['HCl'] > 0 && labState.reagentsInBeaker['NaOH'] > 0) {
+                const acidAmt = labState.reagentsInBeaker['HCl'];
+                const baseAmt = labState.reagentsInBeaker['NaOH'];
+                if (acidAmt > baseAmt) {
+                    basePh = 1.5 + (baseAmt / acidAmt) * 4.0;
+                } else if (baseAmt > acidAmt) {
+                    basePh = 12.5 - (acidAmt / baseAmt) * 4.0;
+                } else {
+                    basePh = 7.0;
+                }
+            } else if (labState.reagentsInBeaker['HCl'] > 0) {
+                basePh = 1.2;
+            } else if (labState.reagentsInBeaker['NaOH'] > 0 || labState.reagentsInBeaker['Na'] > 0) {
+                basePh = 13.2;
+            }
+            labState.ph = Math.max(0.0, Math.min(14.0, basePh));
+
+            // Recalculate Liquid Color & Opacity
+            calculateLiquidColor();
+        }
+
+        function calculateLiquidColor() {
+            if (labState.volume <= 0) {
+                labState.liquidColorHex = '#ffffff';
+                labState.liquidColorName = '空燒杯 (無液體)';
+                labState.liquidOpacity = 0.0;
+                return;
+            }
+
+            labState.liquidOpacity = 0.65;
+
+            // Universal Indicator Spectrum Color Mapping
+            if (labState.reagentsInBeaker['Universal'] > 0) {
+                if (labState.ph < 3) {
+                    labState.liquidColorHex = '#ef4444'; // Red
+                    labState.liquidColorName = '強酸性 (紅色)';
+                } else if (labState.ph < 5) {
+                    labState.liquidColorHex = '#f97316'; // Orange
+                    labState.liquidColorName = '弱酸性 (橙色)';
+                } else if (labState.ph < 6.5) {
+                    labState.liquidColorHex = '#eab308'; // Yellow
+                    labState.liquidColorName = '微酸性 (黃色)';
+                } else if (labState.ph <= 7.5) {
+                    labState.liquidColorHex = '#22c55e'; // Green
+                    labState.liquidColorName = '中性 (璀璨翠綠)';
+                } else if (labState.ph < 10) {
+                    labState.liquidColorHex = '#06b6d4'; // Blue
+                    labState.liquidColorName = '弱鹼性 (藍綠色)';
+                } else {
+                    labState.liquidColorHex = '#a855f7'; // Purple
+                    labState.liquidColorName = '強鹼性 (深紫色)';
+                }
+                return;
+            }
+
+            // Phenolphthalein Indicator
+            if (labState.reagentsInBeaker['Phenol'] > 0 && labState.ph >= 8.3) {
+                labState.liquidColorHex = '#e11d48';
+                labState.liquidColorName = '鹼性顯色 (鮮豔亮粉紅)';
+                return;
+            }
+
+            // Precipitates Color
+            if (labState.hasPrecipitate) {
+                if (labState.precipitateType === 'cu') {
+                    labState.liquidColorHex = '#38bdf8';
+                    labState.liquidColorName = '天藍色懸濁液';
+                    labState.liquidOpacity = 0.85;
+                    return;
+                } else if (labState.precipitateType === 'ag') {
+                    labState.liquidColorHex = '#f8fafc';
+                    labState.liquidColorName = '乳白色凝乳懸濁液';
+                    labState.liquidOpacity = 0.90;
+                    return;
+                }
+            }
+
+            // Copper Sulfate solution
+            if (labState.reagentsInBeaker['CuSO4'] > 0) {
+                labState.liquidColorHex = '#0284c7';
+                labState.liquidColorName = '寶藍色 Cu²⁺ 溶液';
+                return;
+            }
+
+            // Elephant Toothpaste Foam
+            if (labState.activeReactions.includes('elephant_toothpaste')) {
+                labState.liquidColorHex = '#facc15';
+                labState.liquidColorName = '金黃噴發泡沫柱';
+                return;
+            }
+
+            // Default Clean Aqueous Liquid
+            labState.liquidColorHex = '#e0f2fe';
+            labState.liquidColorName = '無色清澈透明水溶液';
+            labState.liquidOpacity = 0.35;
+        }
+
+        function updateDashboardUI() {
+            // Volume
+            document.getElementById('liquid-volume-tag').innerText = `${Math.round(labState.volume)} mL`;
+
+            // Temperature
+            const tempVal = labState.temp.toFixed(1);
+            document.getElementById('temp-display').innerText = `${tempVal} °C`;
+            const tempPercent = Math.min(100, Math.max(0, (labState.temp / 100) * 100));
+            document.getElementById('temp-bar').style.width = `${tempPercent}%`;
+
+            // pH Meter
+            const phVal = labState.ph.toFixed(1);
+            let phDesc = "中性";
+            if (labState.ph < 6.5) phDesc = "酸性";
+            else if (labState.ph > 7.5) phDesc = "鹼性";
+            document.getElementById('ph-display').innerText = `${phVal} (${phDesc})`;
+            
+            const phPinPercent = (labState.ph / 14.0) * 100;
+            document.getElementById('ph-indicator-pin').style.left = `${phPinPercent}%`;
+
+            // Color Indicator Dot
+            document.getElementById('liquid-color-dot').style.backgroundColor = labState.liquidColorHex;
+            document.getElementById('liquid-color-name').innerText = labState.liquidColorName;
+
+            // Reagents Chips
+            const chipsContainer = document.getElementById('active-chemicals-chips');
+            const keys = Object.keys(labState.reagentsInBeaker);
+            document.getElementById('chem-count-tag').innerText = `${keys.length} 種`;
+
+            if (keys.length === 0) {
+                chipsContainer.innerHTML = `<span class="text-[10px] text-slate-500 italic">尚無成分</span>`;
+            } else {
+                chipsContainer.innerHTML = keys.map(k => {
+                    const chem = CHEMICAL_DATABASE.find(c => c.id === k);
+                    const amt = labState.reagentsInBeaker[k];
+                    return `<span class="text-[10px] px-2 py-0.5 rounded-md bg-slate-800 text-cyan-300 border border-slate-700 font-semibold flex items-center gap-1">
+                        <span class="w-1.5 h-1.5 rounded-full" style="background-color:${chem.color}"></span>
+                        ${chem.name}: ${amt}${chem.amountUnit}
+                    </span>`;
+                }).join('');
+            }
+
+            // Reactions Chips
+            const reactContainer = document.getElementById('active-reactions-container');
+            document.getElementById('reaction-count-tag').innerText = `${labState.activeReactions.length} 個`;
+
+            if (labState.activeReactions.length === 0) {
+                reactContainer.innerHTML = `<span class="text-[10px] text-slate-500 italic">無化學反應進行中</span>`;
+            } else {
+                reactContainer.innerHTML = labState.activeReactions.map(rId => {
+                    const rule = REACTION_RULES.find(r => r.id === rId);
+                    return `
+                        <div class="p-1.5 bg-slate-950 rounded border border-amber-500/30 text-[10px] space-y-0.5">
+                            <div class="font-bold text-amber-400">${rule.name}</div>
+                            <div class="code-font text-slate-300 text-[9px]">${rule.equation}</div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            // Update 3D Liquid Mesh Visuals
+            update3DLiquidVisuals();
+        }
+
+        function init3DScene() {
+            const container = document.getElementById('canvas-container');
+
+            // Scene setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x030712);
+            scene.fog = new THREE.FogExp2(0x030712, 0.035);
+
+            // Camera setup
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+            camera.position.set(0, 3.5, 6.5);
+            originalCameraPos = camera.position.clone();
+
+            // WebGL Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, stencil: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // Orbit Controls - Optimized for fluid manipulation
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            // Keep camera movement immediate with no inertia after mouse/touch release.
+            controls.enableDamping = false;
+            controls.dampingFactor = 0.0;
+            controls.enablePan = true;
+            controls.panSpeed = 0.8;
+            controls.rotateSpeed = 0.8;
+            controls.zoomSpeed = 1.0;
+            controls.maxPolarAngle = Math.PI / 2 + 0.05;
+            controls.minDistance = 1.5;
+            controls.maxDistance = 18;
+            controls.target.set(0, 1.5, 0); // Focus on beaker center
+
+            // Lighting System
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+            scene.add(ambientLight);
+
+            const mainSpotLight = new THREE.SpotLight(0x38bdf8, 2.5);
+            mainSpotLight.position.set(5, 10, 5);
+            mainSpotLight.castShadow = true;
+            mainSpotLight.shadow.mapSize.width = 1024;
+            mainSpotLight.shadow.mapSize.height = 1024;
+            scene.add(mainSpotLight);
+
+            const fillLight = new THREE.PointLight(0xa855f7, 1.2, 10);
+            fillLight.position.set(-5, 4, -3);
+            scene.add(fillLight);
+
+            // Explosion Dynamic Flash Light
+            explosionLight = new THREE.PointLight(0xffaa22, 0, 15);
+            scene.add(explosionLight);
+
+            // Construct 3D Lab Apparatus
+            buildLaboratoryTable();
+            buildAlcoholLamp();
+            buildTripod();
+            build3DBeaker();
+
+            // Particle Systems
+            initBubbleParticles();
+            initPrecipitateParticles();
+            initSteamParticles();
+            initFoamColumnMesh();
+
+            // Responsive Window Resize Handler
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function buildLaboratoryTable() {
+            const tableGeo = new THREE.BoxGeometry(10, 0.4, 8);
+            const tableMat = new THREE.MeshStandardMaterial({
+                color: 0x0f172a,
+                roughness: 0.4,
+                metalness: 0.6
+            });
+            const tableMesh = new THREE.Mesh(tableGeo, tableMat);
+            tableMesh.position.set(0, -0.2, 0);
+            tableMesh.receiveShadow = true;
+            scene.add(tableMesh);
+
+            const gridHelper = new THREE.GridHelper(10, 20, 0x38bdf8, 0x1e293b);
+            gridHelper.position.y = 0.01;
+            scene.add(gridHelper);
+        }
+
+        function buildAlcoholLamp() {
+            const lampGroup = new THREE.Group();
+            lampGroup.position.set(0, 0.2, 0);
+
+            // Lamp Glass Body
+            const bodyGeo = new THREE.CylinderGeometry(0.5, 0.6, 0.7, 24);
+            const bodyMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, roughness: 0.1, transmission: 0.8 });
+            const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+            bodyMesh.position.y = 0.35;
+            lampGroup.add(bodyMesh);
+
+            // Cap / Wick Holder
+            const capGeo = new THREE.CylinderGeometry(0.15, 0.2, 0.15, 16);
+            const capMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8, roughness: 0.3 });
+            const capMesh = new THREE.Mesh(capGeo, capMat);
+            capMesh.position.y = 0.775;
+            lampGroup.add(capMesh);
+
+            // Wick
+            const wickGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.2, 8);
+            const wickMat = new THREE.MeshStandardMaterial({ color: 0x334155 });
+            const wickMesh = new THREE.Mesh(wickGeo, wickMat);
+            wickMesh.position.y = 0.85;
+            lampGroup.add(wickMesh);
+
+            // Flame Group
+            flameGroup = new THREE.Group();
+            flameGroup.position.set(0, 1.05, 0);
+
+            const flameGeo = new THREE.ConeGeometry(0.18, 0.5, 16);
+            const flameMat = new THREE.MeshBasicMaterial({
+                color: 0xf59e0b,
+                transparent: true,
+                opacity: 0.85,
+                depthTest: true,
+                depthWrite: false,
+                stencilWrite: true,
+                stencilRef: 0,
+                stencilFunc: THREE.EqualStencilFunc,
+                stencilFail: THREE.KeepStencilOp,
+                stencilZFail: THREE.KeepStencilOp,
+                stencilZPass: THREE.KeepStencilOp,
+                stencilFuncMask: 0xff,
+                stencilWriteMask: 0x00
+            });
+            flameMesh = new THREE.Mesh(flameGeo, flameMat);
+            flameMesh.position.y = 0.25;
+            flameMesh.renderOrder = 6;
+            flameGroup.add(flameMesh);
+
+            const coreGeo = new THREE.ConeGeometry(0.09, 0.3, 16);
+            const coreMat = new THREE.MeshBasicMaterial({
+                color: 0x38bdf8,
+                transparent: true,
+                opacity: 0.9,
+                depthTest: true,
+                depthWrite: false,
+                stencilWrite: true,
+                stencilRef: 0,
+                stencilFunc: THREE.EqualStencilFunc,
+                stencilFail: THREE.KeepStencilOp,
+                stencilZFail: THREE.KeepStencilOp,
+                stencilZPass: THREE.KeepStencilOp,
+                stencilFuncMask: 0xff,
+                stencilWriteMask: 0x00
+            });
+            const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+            coreMesh.position.y = 0.15;
+            coreMesh.renderOrder = 6;
+            flameGroup.add(coreMesh);
+
+            flameLight = new THREE.PointLight(0xf59e0b, 2, 4);
+            flameLight.position.set(0, 0.3, 0);
+            flameGroup.add(flameLight);
+
+            flameGroup.visible = false;
+            lampGroup.add(flameGroup);
+
+            scene.add(lampGroup);
+        }
+
+        function buildTripod() {
+            const tripodGroup = new THREE.Group();
+
+            // Tripod Metal Ring
+            const ringGeo = new THREE.TorusGeometry(0.95, 0.04, 12, 32);
+            const metalMat = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.8, roughness: 0.3 });
+            const ringMesh = new THREE.Mesh(ringGeo, metalMat);
+            ringMesh.rotation.x = Math.PI / 2;
+            ringMesh.position.y = 1.45;
+            tripodGroup.add(ringMesh);
+
+            // Ceramic Wire Gauze Mesh
+            const gauzeGeo = new THREE.CylinderGeometry(0.95, 0.95, 0.02, 32);
+            const gauzeMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.4, roughness: 0.8 });
+            const gauzeMesh = new THREE.Mesh(gauzeGeo, gauzeMat);
+            gauzeMesh.position.y = 1.48;
+            tripodGroup.add(gauzeMesh);
+
+            // 3 Tripod Metal Legs
+            for (let i = 0; i < 3; i++) {
+                const angle = (i * Math.PI * 2) / 3;
+                const legGeo = new THREE.CylinderGeometry(0.035, 0.035, 1.45, 12);
+                const legMesh = new THREE.Mesh(legGeo, metalMat);
+                legMesh.position.set(Math.cos(angle) * 0.9, 0.725, Math.sin(angle) * 0.9);
+                legMesh.rotation.z = Math.cos(angle) * 0.12;
+                legMesh.rotation.x = -Math.sin(angle) * 0.12;
+                tripodGroup.add(legMesh);
+            }
+
+            scene.add(tripodGroup);
+        }
+
+        function build3DBeaker() {
+            beakerGroup = new THREE.Group();
+            beakerGroup.position.set(0, 1.51, 0);
+
+            settledSolidGroup = new THREE.Group();
+            beakerGroup.add(settledSolidGroup);
+
+            // Transparent Glass Outer Cylinder
+            const beakerRadius = 0.9;
+            const beakerHeight = 2.2;
+            const glassGeo = new THREE.CylinderGeometry(beakerRadius, beakerRadius * 0.95, beakerHeight, 48, 1, true);
+            // Invisible stencil mask so flame particles cannot render through the beaker wall.
+            const glassMaskMat = new THREE.MeshBasicMaterial({
+                colorWrite: false,
+                depthWrite: false,
+                depthTest: false,
+                side: THREE.DoubleSide,
+                stencilWrite: true,
+                stencilRef: 1,
+                stencilFunc: THREE.AlwaysStencilFunc,
+                stencilFail: THREE.KeepStencilOp,
+                stencilZFail: THREE.KeepStencilOp,
+                stencilZPass: THREE.ReplaceStencilOp,
+                stencilWriteMask: 0xff
+            });
+            beakerGlassDepthMask = new THREE.Mesh(glassGeo, glassMaskMat);
+            beakerGlassDepthMask.position.y = beakerHeight / 2;
+            beakerGlassDepthMask.renderOrder = 0;
+            beakerGroup.add(beakerGlassDepthMask);
+
+            const glassMat = new THREE.MeshPhysicalMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.2,
+                roughness: 0.05,
+                metalness: 0.1,
+                transmission: 0.92,
+                ior: 1.5,
+                depthWrite: false,
+                side: THREE.DoubleSide
+            });
+            const glassMesh = new THREE.Mesh(glassGeo, glassMat);
+            glassMesh.position.y = beakerHeight / 2;
+            glassMesh.renderOrder = 3;
+            beakerGroup.add(glassMesh);
+
+            // Glass Bottom Base removed as requested
+
+            // Graduation Marks
+            for (let i = 1; i <= 4; i++) {
+                const markGeo = new THREE.TorusGeometry(beakerRadius * 0.98, 0.008, 8, 48);
+                const markMat = new THREE.MeshBasicMaterial({ color: 0xffffff, opacity: 0.6, transparent: true });
+                const markMesh = new THREE.Mesh(markGeo, markMat);
+                markMesh.rotation.x = Math.PI / 2;
+                markMesh.position.y = i * 0.45;
+                markMesh.renderOrder = 4;
+                beakerGroup.add(markMesh);
+            }
+
+            // Internal Liquid Mesh
+            const liquidGeo = new THREE.CylinderGeometry(beakerRadius * 0.93, beakerRadius * 0.92, 1.0, 32);
+            liquidMaterial = new THREE.MeshPhysicalMaterial({
+                color: new THREE.Color('#e0f2fe'),
+                transparent: true,
+                opacity: 0.0,
+                roughness: 0.1,
+                transmission: 0.6,
+                depthWrite: false
+            });
+            liquidMesh = new THREE.Mesh(liquidGeo, liquidMaterial);
+            liquidMesh.position.y = 0.5;
+            liquidMesh.visible = false;
+            liquidMesh.renderOrder = 2;
+            beakerGroup.add(liquidMesh);
+
+            // Top Liquid Meniscus
+            const meniscusGeo = new THREE.CircleGeometry(beakerRadius * 0.93, 32);
+            liquidTopMeniscusMesh = new THREE.Mesh(meniscusGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, depthWrite: false }));
+            liquidTopMeniscusMesh.rotation.x = -Math.PI / 2;
+            liquidTopMeniscusMesh.position.y = 1.0;
+            liquidTopMeniscusMesh.visible = false;
+            liquidTopMeniscusMesh.renderOrder = 2;
+            beakerGroup.add(liquidTopMeniscusMesh);
+
+            scene.add(beakerGroup);
+        }
+
+        function addSettledSolidVisual(chem) {
+            let mesh;
+            const isFloatingNa = (chem.id === 'Na');
+
+            if (chem.id === 'Na') {
+                const geo = new THREE.DodecahedronGeometry(0.12);
+                const mat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.2, metalness: 0.8 });
+                mesh = new THREE.Mesh(geo, mat);
+            } else if (chem.id === 'Zn') {
+                const geo = new THREE.DodecahedronGeometry(0.08);
+                const mat = new THREE.MeshStandardMaterial({ color: 0x71717a, roughness: 0.5, metalness: 0.7 });
+                mesh = new THREE.Mesh(geo, mat);
+            } else if (chem.id === 'Fe') {
+                const geo = new THREE.SphereGeometry(0.06, 8, 8);
+                const mat = new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.8, metalness: 0.9 });
+                mesh = new THREE.Mesh(geo, mat);
+            } else if (chem.id === 'CaCO3') {
+                const geo = new THREE.BoxGeometry(0.18, 0.14, 0.18);
+                const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 });
+                mesh = new THREE.Mesh(geo, mat);
+            } else {
+                const geo = new THREE.DodecahedronGeometry(0.08);
+                const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(chem.color) });
+                mesh = new THREE.Mesh(geo, mat);
+            }
+
+            mesh.renderOrder = 1;
+
+            const angle = Math.random() * Math.PI * 2;
+            const dist = Math.random() * 0.5;
+            const startX = Math.cos(angle) * dist;
+            const startZ = Math.sin(angle) * dist;
+
+            mesh.position.set(startX, 0.08, startZ);
+            mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
+
+            settledSolidGroup.add(mesh);
+            persistentSolids.push({ mesh: mesh, chemId: chem.id, isFloating: isFloatingNa, offsetAngle: angle });
+        }
+
+        function updateSettledSolidsPositions() {
+            const targetLiquidHeight = Math.min(1.8, Math.max(0.0, (labState.volume / 250) * 1.6));
+
+            persistentSolids.forEach(item => {
+                if (item.isFloating && labState.volume > 0) {
+                    const floatY = targetLiquidHeight + 0.06;
+                    item.mesh.position.y = THREE.MathUtils.lerp(item.mesh.position.y, floatY, 0.1);
+                    item.mesh.position.x += Math.sin(Date.now() * 0.005 + item.offsetAngle) * 0.003;
+                    item.mesh.position.z += Math.cos(Date.now() * 0.005 + item.offsetAngle) * 0.003;
+                    item.mesh.rotation.x += 0.05;
+                } else {
+                    item.mesh.position.y = 0.08;
+                }
+            });
+        }
+
+        function initBubbleParticles() {
+            const count = 60;
+            const geo = new THREE.BufferGeometry();
+            const pos = new Float32Array(count * 3);
+
+            for (let i = 0; i < count; i++) {
+                pos[i * 3] = (Math.random() - 0.5) * 1.2;
+                pos[i * 3 + 1] = Math.random() * 1.5;
+                pos[i * 3 + 2] = (Math.random() - 0.5) * 1.2;
+                bubbleSpeeds.push(0.01 + Math.random() * 0.02);
+            }
+
+            geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            const mat = new THREE.PointsMaterial({
+                color: 0xffffff,
+                size: 0.06,
+                transparent: true,
+                opacity: 0.8
+            });
+
+            bubblesParticles = new THREE.Points(geo, mat);
+            bubblesParticles.visible = false;
+            beakerGroup.add(bubblesParticles);
+        }
+
+        function initPrecipitateParticles() {
+            const count = 150;
+            const geo = new THREE.BufferGeometry();
+            const pos = new Float32Array(count * 3);
+
+            geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            const mat = new THREE.PointsMaterial({
+                color: 0x38bdf8,
+                size: 0.065,
+                transparent: true,
+                opacity: 0.9
+            });
+
+            precipitateParticles = new THREE.Points(geo, mat);
+            precipitateParticles.visible = false;
+            beakerGroup.add(precipitateParticles);
+            resetPrecipitateParticles();
+        }
+
+        function resetPrecipitateParticles() {
+            if (!precipitateParticles) return;
+
+            const count = precipitateParticles.geometry.attributes.position.count;
+            const pos = precipitateParticles.geometry.attributes.position.array;
+            const liquidHeight = Math.min(1.8, Math.max(0.2, (labState.volume / 250) * 1.6));
+            const startTop = Math.max(0.35, liquidHeight - 0.05);
+            const startBottom = 0.12;
+
+            precipitatePositions.length = 0;
+            precipitateSpeeds.length = 0;
+            precipitateSettled.length = 0;
+
+            for (let i = 0; i < count; i++) {
+                const startX = (Math.random() - 0.5) * 1.05;
+                const startZ = (Math.random() - 0.5) * 1.05;
+                const startY = startBottom + Math.random() * Math.max(0.08, startTop - startBottom);
+
+                pos[i * 3] = startX;
+                pos[i * 3 + 1] = startY;
+                pos[i * 3 + 2] = startZ;
+
+                const angle = i * 2.399963229728653;
+                const radius = 0.08 + 0.62 * Math.sqrt((i + 0.5) / count);
+                precipitatePositions.push(radius * Math.cos(angle), 0.03, radius * Math.sin(angle));
+                precipitateSpeeds.push(0.0035 + Math.random() * 0.0075);
+                precipitateSettled.push(false);
+            }
+
+            precipitateParticles.geometry.attributes.position.needsUpdate = true;
+        }
+
+        function initSteamParticles() {
+            const count = 40;
+            const geo = new THREE.BufferGeometry();
+            const pos = new Float32Array(count * 3);
+
+            for (let i = 0; i < count; i++) {
+                pos[i * 3] = (Math.random() - 0.5) * 1.0;
+                pos[i * 3 + 1] = 2.0 + Math.random() * 1.5;
+                pos[i * 3 + 2] = (Math.random() - 0.5) * 1.0;
+            }
+
+            geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            const mat = new THREE.PointsMaterial({
+                color: 0xf8fafc,
+                size: 0.12,
+                transparent: true,
+                opacity: 0.35
+            });
+
+            steamParticles = new THREE.Points(geo, mat);
+            steamParticles.visible = false;
+            beakerGroup.add(steamParticles);
+        }
+
+        function initFoamColumnMesh() {
+            const geo = new THREE.CylinderGeometry(0.88, 0.88, 3.5, 32);
+            // Shift the geometry so the local origin sits at the bottom of the foam column.
+            geo.translate(0, 1.75, 0);
+            const mat = new THREE.MeshStandardMaterial({
+                color: 0xfacc15,
+                roughness: 0.8,
+                metalness: 0.1
+            });
+            foamColumnMesh = new THREE.Mesh(geo, mat);
+            foamColumnMesh.position.set(0, 0, 0);
+            foamColumnMesh.renderOrder = 2;
+
+            foamPivotGroup = new THREE.Group();
+            foamPivotGroup.position.y = 0.03;
+            foamPivotGroup.add(foamColumnMesh);
+
+            foamColumnMesh.scale.set(1, 0.01, 1);
+            foamColumnMesh.visible = false;
+            foamPivotGroup.visible = false;
+            beakerGroup.add(foamPivotGroup);
+
+            foamSpillGroup = new THREE.Group();
+            foamSpillGroup.visible = false;
+            foamSpillGroup.renderOrder = 1;
+            beakerGroup.add(foamSpillGroup);
+
+            const spillMat = new THREE.MeshStandardMaterial({
+                color: 0xf6d86a,
+                roughness: 0.95,
+                metalness: 0.02,
+                transparent: true,
+                opacity: 0.0,
+                depthWrite: false
+            });
+
+            foamSpillMesh = new THREE.Mesh(new THREE.BufferGeometry(), spillMat);
+            foamSpillMesh.visible = false;
+            foamSpillMesh.renderOrder = 1;
+            foamSpillGroup.add(foamSpillMesh);
+
+            foamSpillCapMesh = new THREE.Mesh(
+                new THREE.SphereGeometry(0.11, 12, 10),
+                spillMat.clone()
+            );
+            foamSpillCapMesh.visible = false;
+            foamSpillCapMesh.renderOrder = 1;
+            foamSpillGroup.add(foamSpillCapMesh);
+        }
+
+        function resetFoamSpill() {
+            if (!foamSpillGroup) return;
+
+            foamSpillGroup.visible = false;
+            foamSpillLastProgress = -1;
+            if (foamSpillMesh) {
+                foamSpillMesh.visible = false;
+                foamSpillMesh.material.opacity = 0.0;
+            }
+            if (foamSpillCapMesh) {
+                foamSpillCapMesh.visible = false;
+                foamSpillCapMesh.material.opacity = 0.0;
+                foamSpillCapMesh.scale.set(0.01, 0.01, 0.01);
+            }
+        }
+
+        function updateFoamSpill(spillProgress) {
+            if (!foamSpillGroup || !foamSpillMesh || !foamSpillCapMesh) return;
+
+            if (spillProgress <= 0.02) {
+                resetFoamSpill();
+                return;
+            }
+
+            foamSpillGroup.visible = true;
+            foamSpillMesh.visible = true;
+            foamSpillCapMesh.visible = true;
+
+            foamSpillMesh.material.opacity = 0.20 + spillProgress * 0.42;
+            foamSpillCapMesh.material.opacity = 0.18 + spillProgress * 0.30;
+
+            const xReach = 0.06 + spillProgress * 0.18;
+            const zReach = 0.02 + spillProgress * 0.05;
+            const topY = 2.15 + spillProgress * 0.72;
+            const midY = 2.38 + spillProgress * 0.55;
+            const upperY = 2.66 + spillProgress * 0.40;
+            const peakY = 2.90 + spillProgress * 0.28;
+
+            foamSpillCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(0.00, 2.08, 0.02),
+                new THREE.Vector3(0.02, 2.20, 0.03),
+                new THREE.Vector3(0.03 + spillProgress * 0.04, topY, 0.03),
+                new THREE.Vector3(0.04 + spillProgress * 0.05, midY, 0.04),
+                new THREE.Vector3(0.05 + spillProgress * 0.06, upperY, 0.04),
+                new THREE.Vector3(0.06 + spillProgress * 0.07, peakY, 0.04),
+                new THREE.Vector3(xReach, peakY + 0.10, zReach)
+            ], false, 'catmullrom', 0.35);
+
+            const tubeRadius = 0.11 + spillProgress * 0.03;
+            const tubeGeo = new THREE.TubeGeometry(foamSpillCurve, 30, tubeRadius, 14, false);
+
+            if (foamSpillMesh.geometry) foamSpillMesh.geometry.dispose();
+            foamSpillMesh.geometry = tubeGeo;
+
+            foamSpillMesh.rotation.y = -0.05 + spillProgress * 0.03;
+            foamSpillMesh.position.set(0, 0, 0);
+
+            foamSpillCapMesh.position.set(xReach + 0.01, peakY + 0.08, zReach + 0.01);
+            foamSpillCapMesh.scale.setScalar(0.90 + spillProgress * 0.88);
+
+            foamSpillLastProgress = spillProgress;
+        }
+
+        function update3DLiquidVisuals() {
+            if (labState.volume <= 0) {
+                liquidMesh.visible = false;
+                liquidTopMeniscusMesh.visible = false;
+                if (bubblesParticles) bubblesParticles.visible = false;
+                if (precipitateParticles) precipitateParticles.visible = false;
+                if (steamParticles) steamParticles.visible = false;
+                return;
+            }
+
+            liquidMesh.visible = true;
+            liquidTopMeniscusMesh.visible = true;
+
+            const targetHeight = Math.min(1.8, Math.max(0.1, (labState.volume / 250) * 1.6));
+            
+            liquidMesh.scale.set(1, targetHeight, 1);
+            liquidMesh.position.y = targetHeight / 2 + 0.05;
+
+            liquidTopMeniscusMesh.position.y = targetHeight + 0.05;
+
+            const colorObj = new THREE.Color(labState.liquidColorHex);
+            liquidMaterial.color = colorObj;
+            liquidMaterial.opacity = labState.liquidOpacity;
+            liquidTopMeniscusMesh.material.color = colorObj;
+
+            bubblesParticles.visible = labState.isBubbling || labState.temp >= 90.0;
+
+            if (labState.hasPrecipitate) {
+                if (precipitateNeedsReset) {
+                    resetPrecipitateParticles();
+                    precipitateNeedsReset = false;
+                }
+                precipitateParticles.visible = true;
+                if (labState.precipitateType === 'cu') {
+                    precipitateParticles.material.color.setHex(0x38bdf8);
+                } else {
+                    precipitateParticles.material.color.setHex(0xffffff);
+                }
+            } else {
+                precipitateParticles.visible = false;
+            }
+        }
+
+        function spawnDroppingObject(chem) {
+            const startY = 6.0;
+            const dropGroup = new THREE.Group();
+            dropGroup.position.set(0, startY, 0);
+
+            const baseBeakerY = beakerGroup.position.y;
+
+            if (chem.state === 'solid') {
+                const geo = new THREE.DodecahedronGeometry(0.12);
+                const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(chem.color), roughness: 0.3 });
+                const mesh = new THREE.Mesh(geo, mat);
+                dropGroup.add(mesh);
+
+                activeDroppingObjects.push({
+                    group: dropGroup,
+                    speedY: 0.15,
+                    chem: chem,
+                    targetY: baseBeakerY + 0.1
+                });
+            } else {
+                for (let i = 0; i < 5; i++) {
+                    const dropGeo = new THREE.SphereGeometry(0.06);
+                    const dropMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(chem.color), transparent: true, opacity: 0.8 });
+                    const dropMesh = new THREE.Mesh(dropGeo, dropMat);
+                    dropMesh.position.set((Math.random() - 0.5) * 0.2, i * 0.25, (Math.random() - 0.5) * 0.2);
+                    dropGroup.add(dropMesh);
+                }
+
+                activeDroppingObjects.push({
+                    group: dropGroup,
+                    speedY: 0.2,
+                    chem: chem,
+                    targetY: baseBeakerY + Math.max(0.2, (labState.volume / 250) * 1.6)
+                });
+            }
+
+            scene.add(dropGroup);
+        }
+
+        function toggleAlcoholLampFlame() {
+            labState.isBurnerLit = !labState.isBurnerLit;
+            const btnText = document.getElementById('burner-text');
+            const btnIcon = document.getElementById('burner-icon');
+
+            if (labState.isBurnerLit) {
+                flameGroup.visible = true;
+                btnText.innerText = "熄滅酒精燈";
+                btnIcon.className = "fa-solid fa-fire-burner text-rose-500 animate-bounce";
+                showNotification('已點燃酒精燈，燒杯持續加熱中...', 'fa-fire');
+            } else {
+                flameGroup.visible = false;
+                btnText.innerText = "點燃酒精燈加熱";
+                btnIcon.className = "fa-solid fa-fire text-amber-500";
+                showNotification('酒精燈已熄滅', 'fa-fire-flame-curved');
+            }
+        }
+
+        /* Dynamic Explosion & Glass Shatter Physics Simulation */
+        function triggerExplosionDemo() {
+            if (labState.isShattered) return;
+            labState.isShattered = true;
+
+            playSoundEffect('boom');
+
+            // Hide normal intact beaker
+            beakerGroup.visible = false;
+            cameraShakeBasePos = camera.position.clone();
+            cameraShakeTime = 0.75; // Intense camera shake
+
+            const baseBeakerY = beakerGroup.position.y;
+
+            // Flash Explosion Light
+            if (explosionLight) {
+                explosionLight.position.set(0, baseBeakerY + 0.8, 0);
+                explosionLight.intensity = 30.0;
+            }
+
+            // 1. Generate Fiery Sparks (火花四濺 - 增加數量與高速噴濺)
+            const sparkColors = [0xffffff, 0xfacc15, 0xf97316, 0xef4444, 0x38bdf8];
+            for (let i = 0; i < 160; i++) {
+                const geo = new THREE.SphereGeometry(0.02 + Math.random() * 0.05, 6, 6);
+                const chosenColor = sparkColors[Math.floor(Math.random() * sparkColors.length)];
+                const mat = new THREE.MeshBasicMaterial({ color: chosenColor });
+                const spark = new THREE.Mesh(geo, mat);
+                
+                spark.position.set(
+                    (Math.random() - 0.5) * 0.3,
+                    baseBeakerY + 0.6 + (Math.random() - 0.5) * 0.3,
+                    (Math.random() - 0.5) * 0.3
+                );
+
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 0.15 + Math.random() * 0.45;
+                const upwardVel = 0.12 + Math.random() * 0.42;
+
+                const vel = new THREE.Vector3(
+                    Math.cos(angle) * speed,
+                    upwardVel,
+                    Math.sin(angle) * speed
+                );
+
+                scene.add(spark);
+                activeSparks.push({
+                    mesh: spark,
+                    vel: vel,
+                    life: 1.0,
+                    decay: 0.012 + Math.random() * 0.022
+                });
+            }
+
+            // 2. Generate Shattered Glass Shards (燒杯碎片)
+            for (let i = 0; i < 50; i++) {
+                const isBox = (i % 2 === 0);
+                const geo = isBox
+                    ? new THREE.BoxGeometry(0.06 + Math.random() * 0.12, 0.12 + Math.random() * 0.18, 0.02)
+                    : new THREE.TetrahedronGeometry(0.08 + Math.random() * 0.14);
+
+                const mat = new THREE.MeshPhysicalMaterial({
+                    color: 0xe0f2fe,
+                    transparent: true,
+                    opacity: 0.85,
+                    roughness: 0.1,
+                    metalness: 0.1,
+                    transmission: 0.85,
+                    ior: 1.5,
+                    side: THREE.DoubleSide
+                });
+
+                const shard = new THREE.Mesh(geo, mat);
+                shard.position.set(
+                    (Math.random() - 0.5) * 0.4,
+                    baseBeakerY + 0.3 + Math.random() * 1.0,
+                    (Math.random() - 0.5) * 0.4
+                );
+
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 0.08 + Math.random() * 0.32;
+                const vel = new THREE.Vector3(
+                    Math.cos(angle) * speed,
+                    0.12 + Math.random() * 0.28,
+                    Math.sin(angle) * speed
+                );
+
+                const rotSpeed = new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.3,
+                    (Math.random() - 0.5) * 0.3,
+                    (Math.random() - 0.5) * 0.3
+                );
+
+                scene.add(shard);
+                activeShards.push({ mesh: shard, vel: vel, rot: rotSpeed, bounced: 0 });
+            }
+
+            // 3. Generate Flying Liquid Splatters (溶液潑濺)
+            if (labState.volume > 0) {
+                for (let i = 0; i < 60; i++) {
+                    const geo = new THREE.SphereGeometry(0.04 + Math.random() * 0.06, 8, 8);
+                    const mat = new THREE.MeshPhysicalMaterial({
+                        color: new THREE.Color(labState.liquidColorHex),
+                        transparent: true,
+                        opacity: 0.85,
+                        roughness: 0.2
+                    });
+                    const drop = new THREE.Mesh(geo, mat);
+                    drop.position.set(
+                        (Math.random() - 0.5) * 0.2,
+                        baseBeakerY + 0.5 + Math.random() * 0.5,
+                        (Math.random() - 0.5) * 0.2
+                    );
+
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = 0.09 + Math.random() * 0.35;
+                    const vel = new THREE.Vector3(
+                        Math.cos(angle) * speed,
+                        0.08 + Math.random() * 0.28,
+                        Math.sin(angle) * speed
+                    );
+
+                    scene.add(drop);
+                    activeSplatters.push({ mesh: drop, vel: vel, landed: false });
+                }
+            }
+
+            document.getElementById('beaker-shattered-msg').classList.remove('hidden');
+        }
+
+        function resetLabTable() {
+            labState.reagentsInBeaker = {};
+            labState.volume = 0;
+            labState.temp = 25.0;
+            labState.ph = 7.0;
+            labState.liquidColorHex = '#ffffff';
+            labState.liquidColorName = '空燒杯 (無液體)';
+            labState.liquidOpacity = 0.0;
+            labState.activeReactions = [];
+            labState.isBubbling = false;
+            labState.hasPrecipitate = false;
+            labState.precipitateType = null;
+            precipitateNeedsReset = true;
+            labState.isShattered = false;
+
+            // Hide all particle systems on reset
+            if (bubblesParticles) bubblesParticles.visible = false;
+            if (precipitateParticles) precipitateParticles.visible = false;
+            if (steamParticles) steamParticles.visible = false;
+
+            if (settledSolidGroup) {
+                while (settledSolidGroup.children.length > 0) {
+                    const child = settledSolidGroup.children[0];
+                    settledSolidGroup.remove(child);
+                    if (child.geometry) child.geometry.dispose();
+                }
+            }
+            persistentSolids = [];
+
+            // Clean up physics explosion objects
+            activeSparks.forEach(s => {
+                scene.remove(s.mesh);
+                if (s.mesh.geometry) s.mesh.geometry.dispose();
+            });
+            activeSparks = [];
+
+            activeShards.forEach(s => {
+                scene.remove(s.mesh);
+                if (s.mesh.geometry) s.mesh.geometry.dispose();
+            });
+            activeShards = [];
+
+            activeSplatters.forEach(s => {
+                scene.remove(s.mesh);
+                if (s.mesh.geometry) s.mesh.geometry.dispose();
+            });
+            activeSplatters = [];
+
+            if (explosionLight) explosionLight.intensity = 0;
+
+            beakerGroup.visible = true;
+            if (foamColumnMesh) foamColumnMesh.visible = false;
+            if (foamColumnMesh) foamColumnMesh.scale.set(1, 0.01, 1);
+            if (foamPivotGroup) foamPivotGroup.visible = false;
+            resetFoamSpill();
+
+            document.getElementById('beaker-shattered-msg').classList.add('hidden');
+
+            updateDashboardUI();
+            showNotification('燒杯已完全清空重置', 'fa-rotate-left');
+        }
+
+        function loadQuest(index) {
+            labState.currentQuestIndex = index;
+            const q = QUEST_LIST[index];
+
+            syncQuestProgressUI();
+            document.getElementById('quest-title').innerText = q.title;
+            document.getElementById('quest-desc').innerText = q.desc;
+
+            const checklistContainer = document.getElementById('quest-checklist');
+            checklistContainer.innerHTML = q.checklist.map(item => `
+                <div class="flex items-center gap-2 text-[11px] text-slate-300">
+                    <i class="fa-regular fa-circle-check text-slate-500"></i>
+                    <span>${item}</span>
+                </div>
+            `).join('');
+
+            syncQuestActionButton();
+        }
+
+        function navigateQuest(direction) {
+            let nextIdx = labState.currentQuestIndex + direction;
+            if (nextIdx < 0) nextIdx = QUEST_LIST.length - 1;
+            if (nextIdx >= QUEST_LIST.length) nextIdx = 0;
+            loadQuest(nextIdx);
+        }
+
+        function syncQuestProgressUI() {
+            const progressTag = document.getElementById('quest-progress-tag');
+            const clearTag = document.getElementById('quest-clear-tag');
+            if (progressTag) {
+                progressTag.innerText = `關卡 ${labState.currentQuestIndex + 1}/${QUEST_LIST.length}`;
+            }
+            if (clearTag) {
+                clearTag.innerText = `已完成 ${labState.questClearCount}/${QUEST_LIST.length}`;
+            }
+        }
+
+        function syncQuestActionButton() {
+            const button = document.getElementById('check-quest-btn');
+            if (!button) return;
+            const isCleared = !!labState.questCleared[labState.currentQuestIndex];
+            if (isCleared) {
+                button.innerHTML = '<i class="fa-solid fa-circle-check mr-1"></i> 這題已完成，可再驗證';
+            } else {
+                button.innerHTML = '<i class="fa-solid fa-check-circle mr-1"></i> 完成步驟後驗證';
+            }
+        }
+
+        function spawnConfettiBurst() {
+            const layer = document.getElementById('celebration-layer');
+            if (!layer) return;
+
+            layer.innerHTML = '';
+            const colors = ['#facc15', '#fb7185', '#34d399', '#60a5fa', '#f97316', '#a78bfa', '#f8fafc'];
+            const width = window.innerWidth;
+            const centerX = width * 0.5;
+
+            for (let i = 0; i < 96; i++) {
+                const piece = document.createElement('span');
+                const size = 6 + Math.random() * 8;
+                const startX = centerX + (Math.random() - 0.5) * Math.min(width * 0.75, 640);
+                const startY = 40 + Math.random() * 80;
+                const dx = (Math.random() - 0.5) * 520;
+                const dy = 320 + Math.random() * 420;
+                const rot = (360 + Math.random() * 900) * (Math.random() > 0.5 ? 1 : -1);
+                const color = colors[Math.floor(Math.random() * colors.length)];
+                const dur = 1800 + Math.random() * 1200;
+
+                piece.className = `confetti-piece ${Math.random() > 0.7 ? 'round' : ''}`;
+                piece.style.left = `${startX}px`;
+                piece.style.top = `${startY}px`;
+                piece.style.setProperty('--size', `${size}px`);
+                piece.style.setProperty('--color', color);
+                piece.style.setProperty('--dx', `${dx}px`);
+                piece.style.setProperty('--dy', `${dy}px`);
+                piece.style.setProperty('--rot', `${rot}deg`);
+                piece.style.setProperty('--dur', `${dur}ms`);
+                piece.style.animationDelay = `${Math.random() * 140}ms`;
+                layer.appendChild(piece);
+            }
+
+            setTimeout(() => {
+                layer.innerHTML = '';
+            }, 3600);
+        }
+
+        function triggerQuestCelebration() {
+            playSoundEffect('clap');
+            spawnConfettiBurst();
+            showNotification('五題全數完成，太棒了！', 'fa-trophy');
+        }
+
+        function verifyCurrentQuest() {
+            const q = QUEST_LIST[labState.currentQuestIndex];
+            const button = document.getElementById('check-quest-btn');
+            if (!q) return;
+
+            if (labState.questCleared[labState.currentQuestIndex]) {
+                showNotification('這一題已經完成過了，直接往下一題吧', 'fa-circle-check');
+                syncQuestActionButton();
+                return;
+            }
+
+            if (!q.verify(labState)) {
+                showNotification('步驟還沒做完，請再照題目操作一次', 'fa-triangle-exclamation');
+                return;
+            }
+
+            labState.questCleared[labState.currentQuestIndex] = true;
+            labState.questClearCount = labState.questCleared.filter(Boolean).length;
+            syncQuestProgressUI();
+            syncQuestActionButton();
+            playSoundEffect('clink');
+            showNotification(`第 ${labState.currentQuestIndex + 1} 題完成！`, 'fa-circle-check');
+
+            if (labState.questClearCount >= QUEST_LIST.length) {
+                if (!labState.questCelebrated) {
+                    labState.questCelebrated = true;
+                    setTimeout(triggerQuestCelebration, 220);
+                }
+                if (button) {
+                    button.innerHTML = '<i class="fa-solid fa-trophy mr-1"></i> 全部任務完成';
+                }
+                return;
+            }
+
+            setTimeout(() => {
+                navigateQuest(1);
+            }, 450);
+        }
+        function resetCameraControls() {
+            camera.position.set(0, 3.5, 6.5);
+            controls.target.set(0, 1.5, 0);
+            controls.update();
+            originalCameraPos.copy(camera.position);
+            showNotification('視角已重置至預設角度', 'fa-arrows-to-dot');
+        }
+
+        function setCameraView(view) {
+            if (view === 'top') {
+                camera.position.set(0, 8.5, 0.01);
+                controls.target.set(0, 1.5, 0);
+            } else if (view === 'closeup') {
+                camera.position.set(0, 2.0, 3.2);
+                controls.target.set(0, 1.5, 0);
+            } else { // default
+                camera.position.set(0, 3.5, 6.5);
+                controls.target.set(0, 1.5, 0);
+            }
+            controls.update();
+            originalCameraPos.copy(camera.position);
+        }
+
+        function onWindowResize() {
+            const container = document.getElementById('canvas-container');
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            controls.update();
+
+            // Heating & Cooling logic
+            if (labState.isBurnerLit && !labState.isShattered) {
+                labState.temp = Math.min(100.0, labState.temp + 0.12);
+                updateDashboardUI();
+
+                steamParticles.visible = labState.temp >= 60.0;
+
+                if (labState.temp >= 98.0 && labState.reagentsInBeaker['Na'] > 0) {
+                    triggerExplosionDemo();
+                }
+            } else if (labState.temp > 25.0) {
+                labState.temp = Math.max(25.0, labState.temp - 0.03);
+                updateDashboardUI();
+            }
+
+            // Flame flickering animation
+            if (flameGroup && flameGroup.visible) {
+                flameMesh.scale.x = 1 + Math.sin(Date.now() * 0.01) * 0.1;
+                flameMesh.scale.z = 1 + Math.cos(Date.now() * 0.01) * 0.1;
+                flameLight.intensity = 1.8 + Math.random() * 0.5;
+            }
+
+            // Elephant Toothpaste Foam
+            if (labState.activeReactions.includes('elephant_toothpaste') && foamColumnMesh) {
+                if (foamPivotGroup) foamPivotGroup.visible = true;
+                foamColumnMesh.visible = true;
+                if (foamColumnMesh.scale.y < 1.0) {
+                    foamColumnMesh.scale.y += 0.015;
+                }
+
+                const spillProgress = THREE.MathUtils.clamp((foamColumnMesh.scale.y - 0.34) / 0.66, 0, 1);
+                updateFoamSpill(spillProgress);
+            }
+
+            // Bubbles animation
+            if (bubblesParticles && bubblesParticles.visible) {
+                const pos = bubblesParticles.geometry.attributes.position.array;
+                for (let i = 0; i < pos.length / 3; i++) {
+                    pos[i * 3 + 1] += bubbleSpeeds[i];
+                    if (pos[i * 3 + 1] > (labState.volume / 250) * 1.6) {
+                        pos[i * 3 + 1] = 0.1;
+                    }
+                }
+                bubblesParticles.geometry.attributes.position.needsUpdate = true;
+            }
+
+            // Precipitate particles sink naturally and settle into a flat layer.
+            if (precipitateParticles && precipitateParticles.visible) {
+                const pos = precipitateParticles.geometry.attributes.position.array;
+                const bottomY = 0.03;
+                const settleThreshold = bottomY + 0.012;
+
+                for (let i = 0; i < pos.length / 3; i++) {
+                    const baseX = precipitatePositions[i * 3];
+                    const baseY = precipitatePositions[i * 3 + 1];
+                    const baseZ = precipitatePositions[i * 3 + 2];
+
+                    if (!precipitateSettled[i]) {
+                        pos[i * 3 + 1] = Math.max(bottomY, pos[i * 3 + 1] - precipitateSpeeds[i]);
+                        pos[i * 3] += Math.sin(i * 0.17 + Date.now() * 0.0012) * 0.0012;
+                        pos[i * 3 + 2] += Math.cos(i * 0.19 + Date.now() * 0.0012) * 0.0012;
+
+                        if (pos[i * 3 + 1] <= settleThreshold) {
+                            precipitateSettled[i] = true;
+                        }
+                    }
+
+                    if (precipitateSettled[i]) {
+                        pos[i * 3] += (baseX - pos[i * 3]) * 0.08;
+                        pos[i * 3 + 1] += (baseY - pos[i * 3 + 1]) * 0.22;
+                        pos[i * 3 + 2] += (baseZ - pos[i * 3 + 2]) * 0.08;
+                    }
+                }
+
+                precipitateParticles.geometry.attributes.position.needsUpdate = true;
+            }
+
+            // Dropping objects physics
+            for (let i = activeDroppingObjects.length - 1; i >= 0; i--) {
+                const obj = activeDroppingObjects[i];
+                obj.group.position.y -= obj.speedY;
+
+                if (obj.group.position.y <= obj.targetY) {
+                    if (obj.chem.state === 'solid') {
+                        addSettledSolidVisual(obj.chem);
+                    }
+                    scene.remove(obj.group);
+                    activeDroppingObjects.splice(i, 1);
+                }
+            }
+
+            updateSettledSolidsPositions();
+
+            // Explosive Flash Light Decay
+            if (explosionLight && explosionLight.intensity > 0) {
+                explosionLight.intensity = Math.max(0, explosionLight.intensity - 0.6);
+            }
+
+            // Sparks Physics & Animation
+            for (let i = activeSparks.length - 1; i >= 0; i--) {
+                const sp = activeSparks[i];
+                sp.mesh.position.add(sp.vel);
+                sp.vel.y -= 0.007; // gravity
+                sp.life -= sp.decay;
+                sp.mesh.scale.multiplyScalar(0.96);
+
+                if (sp.life <= 0 || sp.mesh.position.y <= 0.02) {
+                    scene.remove(sp.mesh);
+                    activeSparks.splice(i, 1);
+                }
+            }
+
+            // Glass Shards Physics & Floor Bounce
+            activeShards.forEach(s => {
+                s.mesh.position.add(s.vel);
+                s.vel.y -= 0.008; // gravity
+                s.mesh.rotation.x += s.rot.x;
+                s.mesh.rotation.y += s.rot.y;
+                s.mesh.rotation.z += s.rot.z;
+
+                // Table Floor Collision & Bounce damper
+                if (s.mesh.position.y <= 0.04 && s.bounced < 2) {
+                    s.mesh.position.y = 0.04;
+                    s.vel.y = -s.vel.y * 0.35;
+                    s.vel.x *= 0.6;
+                    s.vel.z *= 0.6;
+                    s.rot.multiplyScalar(0.4);
+                    s.bounced++;
+                }
+            });
+
+            // Liquid Splatters Physics & Splash Flattening
+            for (let i = activeSplatters.length - 1; i >= 0; i--) {
+                const drop = activeSplatters[i];
+                if (!drop.landed) {
+                    drop.mesh.position.add(drop.vel);
+                    drop.vel.y -= 0.009; // gravity
+                    if (drop.mesh.position.y <= 0.02) {
+                        drop.landed = true;
+                        drop.mesh.position.y = 0.02;
+                        drop.mesh.scale.set(1.8, 0.08, 1.8); // Splash puddle flattening
+                        drop.vel.set(0, 0, 0);
+                    }
+                }
+            }
+
+            // Camera Shake Animation
+            if (cameraShakeTime > 0) {
+                cameraShakeTime -= 0.016;
+                if (cameraShakeBasePos) {
+                    camera.position.x = cameraShakeBasePos.x + (Math.random() - 0.5) * 0.3;
+                    camera.position.y = cameraShakeBasePos.y + (Math.random() - 0.5) * 0.3;
+                }
+            } else if (cameraShakeBasePos) {
+                camera.position.copy(cameraShakeBasePos);
+                cameraShakeBasePos = null;
+            }
+
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
